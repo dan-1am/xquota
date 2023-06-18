@@ -73,8 +73,8 @@ def kill(pid):
 def psfullname(procdir):
     try:
         with open(procdir / 'cmdline') as f:
-            cmd = f.read()
-            return cmd.partition('\x00')[0]
+            args = f.read()
+            return args.partition('\x00')[0]
     except OSError:
         pass
 
@@ -90,6 +90,8 @@ class process:
         with open(self.procdir / 'loginuid') as f:
             return int( f.read() )
 
+    def exists(self):
+        return self.procdir.exists()
 
 
 def psiterate():
@@ -100,7 +102,10 @@ def psiterate():
 
 def killall(pslist):
     for ps in pslist:
-        kill(ps.pid)
+        try:
+            kill(ps.pid)
+        except ProcessLookupError:
+            pass
 
 
 @tests
@@ -332,11 +337,12 @@ def loadstate():
 def control():
     found = []
     for ps in psiterate():
-        uid = ps.uid()
-        if ps.name == 'X' and uid in users:
-            found.append(ps)
-            notifyuser(users[uid], 'Ограничение по времени, выход в консоль через 30 секунд.')
-#            print(ps.pid, ps.uid(),ps.fullname)
+        if ps.name == 'X':
+            uid = ps.uid()
+            if uid in users:
+                found.append(ps)
+                notifyuser(users[uid], 'Ограничение по времени, выход в консоль через 30 секунд.')
+#                print(ps.pid, ps.uid(),ps.fullname)
     if found:
         sleep(30)
         killall(found)
@@ -398,5 +404,7 @@ def main():
         displayrules()
 
 
-#tests_run()
+if debug:
+    tests_run()
+
 main()
