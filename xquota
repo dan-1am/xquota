@@ -87,8 +87,11 @@ class process:
         self.name = self.fullname.rpartition('/')[2]
 
     def uid(self):
-        with open(self.procdir / 'loginuid') as f:
-            return int( f.read() )
+        try:
+            with open(self.procdir / 'loginuid') as f:
+                return int( f.read() )
+        except OSError:
+            pass
 
     def exists(self):
         return self.procdir.exists()
