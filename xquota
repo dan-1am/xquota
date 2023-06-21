@@ -19,10 +19,10 @@ statefile='xquota.state'
 
 if not debug:
     conffile = '/usr/local/etc/' + conffile
-    statefile = '/var/run/' + statefile
-#todo: !!! /var/run on tmpfs, need persistance
+    statefile = '/var/tmp/' + statefile
 
 savedelay = 5 if debug else 300
+watchdelay = 1 if debug else 15
 
 
 
@@ -379,7 +379,7 @@ def daemon():
         else:
             control()
         savestate()
-        sleep(1)
+        sleep(watchdelay)
 
 
 
