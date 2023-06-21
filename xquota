@@ -20,6 +20,7 @@ statefile='xquota.state'
 if not debug:
     conffile = '/usr/local/etc/' + conffile
     statefile = '/var/run/' + statefile
+#todo: !!! /var/run on tmpfs, need persistance
 
 savedelay = 5 if debug else 300
 
@@ -40,6 +41,13 @@ def tests_run():
     print("Tests finished.")
 
 
+def warning(txt):
+    print('Warning:', txt, file=sys.stderr)
+
+def error(txt):
+    print('Error:', txt, file=sys.stderr)
+
+
 
 ################ bash commands
 
@@ -47,14 +55,14 @@ def notify(txt):
     try:
         subprocess.run(['notify-send', txt])
     except FileNotFoundError:
-        print('Warning: notify-send not found, can not send warnings.')
+        warning('notify-send not found, can not send warnings.')
 
 def notifyuser(user, txt):
     try:
         subprocess.run(['su','-',user,'-c',f'DISPLAY=:0 notify-send "{txt}"'])
     except FileNotFoundError:
         #todo: test existence of notify-send
-        print('Warning: notify-send not found, can not send warnings.')
+        warning('notify-send not found, can not send warnings.')
 
 
 
@@ -86,6 +94,7 @@ class process:
         self.fullname = psfullname(procdir)
         self.name = self.fullname.rpartition('/')[2]
 
+    #todo: cache uid ?
     def uid(self):
         try:
             with open(self.procdir / 'loginuid') as f:
@@ -274,7 +283,7 @@ def confreload():
         with open(name) as f:
             txt = f.read()
     except OSError:
-        print(f'Error: unable to load configuration from [{name}]')
+        error(f'unable to load configuration from [{name}]')
     else:
         if txt != rulestext:
             print(f'Configuration loaded from [{name}]')
@@ -311,7 +320,7 @@ def savestate(force=False):
             with open(statefile, 'w') as f:
                 f.write(state)
         except OSError:
-            print(f'Error: unable to save state to [{statefile}]')
+            error(f'unable to save state to [{statefile}]')
         else:
             statesaved(now)
 
@@ -395,7 +404,7 @@ def main():
             if asroot:
                 daemon()
             else:
-                print('Error: need root to run daemon.')
+                error('need root to run daemon.')
                 return
         else:
             print('Wrong arguments.\n')
