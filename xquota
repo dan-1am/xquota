@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-version = '1.02'
+version = '1.03'
 created = '2023.06.17'
 
 import re
@@ -11,8 +11,12 @@ import subprocess
 import pwd
 from time import sleep
 from datetime import datetime,date,time,timedelta
+import syslog
+import logging,logging.handlers
 
 
+
+appname = sys.argv[0].rpartition('/')[2]
 debug = 0
 conffile='xquota.conf'
 statefile='xquota.state'
@@ -23,6 +27,54 @@ if not debug:
 
 savedelay = 5 if debug else 300
 watchdelay = 1 if debug else 15
+
+
+
+################ logging
+
+#syslog.openlog(logoption=syslog.LOG_PID)
+logcodes ='''\
+emergency EMERG
+alert ALERT
+critical CRIT
+error ERR
+warning WARNING
+notice NOTICE
+info INFO
+debug DEBUG'''
+logcodes = { k:getattr(syslog,'LOG_'+v) for k,v in map(lambda a: a.split(' '), logcodes.splitlines()) }
+
+def logmessage(level, txt):
+#    print(level.capitalize() + ':', txt, file=sys.stderr)
+    syslog.syslog(logcodes[level], txt)
+
+class log1:
+    def debug(txt):
+        logmessage('debug', txt)
+
+    def warning(txt):
+        logmessage('warning', txt)
+
+    def error(txt):
+        logmessage('error', txt)
+
+def startlog():
+    global log
+    global consolelog
+    log = logging.getLogger()
+    log.setLevel(logging.DEBUG)
+    consolelog = logging.StreamHandler()
+    fmt = logging.Formatter('%(levelname)s: %(message)s')
+    consolelog.setFormatter(fmt)
+    log.addHandler(consolelog)
+
+def daemonlog():
+    syslog = logging.handlers.SysLogHandler(address = '/dev/log')
+    fmt = logging.Formatter(appname + ': %(levelname)s: %(message)s')
+    syslog.setFormatter(fmt)
+    syslog.setLevel(logging.ERROR)
+    log.addHandler(syslog)
+    log.removeHandler(consolelog)
 
 
 
@@ -41,13 +93,6 @@ def tests_run():
     print("Tests finished.")
 
 
-def warning(txt):
-    print('Warning:', txt, file=sys.stderr)
-
-def error(txt):
-    print('Error:', txt, file=sys.stderr)
-
-
 
 ################ bash commands
 
@@ -55,14 +100,14 @@ def notify(txt):
     try:
         subprocess.run(['notify-send', txt])
     except FileNotFoundError:
-        warning('notify-send not found, can not send warnings.')
+        log.warning('notify-send not found, can not send warnings.')
 
 def notifyuser(user, txt):
     try:
         subprocess.run(['su','-',user,'-c',f'DISPLAY=:0 notify-send "{txt}"'])
     except FileNotFoundError:
         #todo: test existence of notify-send
-        warning('notify-send not found, can not send warnings.')
+        log.warning('notify-send not found, can not send warnings.')
 
 
 
@@ -187,7 +232,6 @@ class rule:
         global statechanged
         self.spent += sec/60
         statechanged = True
-        print(f'{self.spent}/{self.add}')
 
     def ended(self):
         return self.spent >= self.add
@@ -283,10 +327,10 @@ def confreload():
         with open(name) as f:
             txt = f.read()
     except OSError:
-        error(f'unable to load configuration from [{name}]')
+        log.error(f'unable to load configuration from [{name}]')
     else:
         if txt != rulestext:
-            print(f'Configuration loaded from [{name}]')
+            log.info(f'Configuration loaded from [{name}]')
             rulestext = txt
             confloadedat = datetime.now()
             return True
@@ -315,12 +359,12 @@ def savestate(force=False):
         for r in rules:
             if r.spent > 0:
                 state += f'{r.id}={r.spent:.2}\n'
-        print('Saving state.')
+        log.info('Saving state.')
         try:
             with open(statefile, 'w') as f:
                 f.write(state)
         except OSError:
-            error(f'unable to save state to [{statefile}]')
+            log.error(f'unable to save state to [{statefile}]')
         else:
             statesaved(now)
 
@@ -332,7 +376,7 @@ def loadstate():
             txt = f.read()
     except FileNotFoundError:
         return
-    print('State loaded.')
+    log.info('State loaded.')
     state = {}
     for line in txt.splitlines():
         ruleid,_,spent = line.partition('=')
@@ -354,14 +398,13 @@ def control():
             if uid in users:
                 found.append(ps)
                 notifyuser(users[uid], 'Ограничение по времени, выход в консоль через 30 секунд.')
-#                print(ps.pid, ps.uid(),ps.fullname)
     if found:
         sleep(30)
         killall(found)
 
 
 def daemon():
-    print('Daemon started.')
+    log.info('Daemon started.')
     now = datetime.now()
     lastrule = None
     newrules()
@@ -396,21 +439,23 @@ xquota -d''')
 
 
 def main():
-    if not confreload():
-        return
+    startlog()
     asroot = os.getuid() == 0
     if len(sys.argv) > 1:
         if sys.argv[1] == '-d':
+            daemonlog()
             if asroot:
+                if not confreload(): return
                 daemon()
             else:
-                error('need root to run daemon.')
+                log.error('need root to run daemon.')
                 return
         else:
             print('Wrong arguments.\n')
             showhelp()
             return
     else:
+        if not confreload(): return
         newrules()
         loadstate()
         displayrules()
