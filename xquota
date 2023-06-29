@@ -112,11 +112,14 @@ class process:
         self.fullname = psfullname(procdir)
         self.name = self.fullname.rpartition('/')[2]
 
-    #todo: cache uid ?
     def uid(self):
+        uid = getattr(self,'_uid',None)
+        if uid != None:
+            return uid
         try:
             with open(self.procdir / 'loginuid') as f:
-                return int( f.read() )
+                self._uid = int( f.read() )
+                return self._uid
         except OSError:
             pass
 
