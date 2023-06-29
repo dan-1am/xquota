@@ -11,7 +11,6 @@ import subprocess
 import pwd
 from time import sleep
 from datetime import datetime,date,time,timedelta
-import syslog
 import logging,logging.handlers
 
 
@@ -31,32 +30,6 @@ watchdelay = 1 if debug else 15
 
 
 ################ logging
-
-#syslog.openlog(logoption=syslog.LOG_PID)
-logcodes ='''\
-emergency EMERG
-alert ALERT
-critical CRIT
-error ERR
-warning WARNING
-notice NOTICE
-info INFO
-debug DEBUG'''
-logcodes = { k:getattr(syslog,'LOG_'+v) for k,v in map(lambda a: a.split(' '), logcodes.splitlines()) }
-
-def logmessage(level, txt):
-#    print(level.capitalize() + ':', txt, file=sys.stderr)
-    syslog.syslog(logcodes[level], txt)
-
-class log1:
-    def debug(txt):
-        logmessage('debug', txt)
-
-    def warning(txt):
-        logmessage('warning', txt)
-
-    def error(txt):
-        logmessage('error', txt)
 
 def startlog():
     global log
