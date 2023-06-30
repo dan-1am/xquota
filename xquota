@@ -91,7 +91,7 @@ def userid(name):
 
 
 def kill(pid):
-    print(f'Killing {pid}')
+    log.info(f'Killing {pid}')
     if not debug:
         os.kill(pid, 15)        #15=term
 
@@ -449,5 +449,8 @@ def main():
         displayrules()
 
 
-
-main()
+try:
+    main()
+except Exception as e:
+    log.critical(e, exc_info=True)
+    sys.exit(1)
