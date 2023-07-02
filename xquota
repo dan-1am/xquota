@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-version = '1.05'
+version = '1.06'
 created = '2023.06.17'
 
 import re
@@ -16,7 +16,7 @@ import logging,logging.handlers
 
 
 appname = sys.argv[0].rpartition('/')[2]
-debug = 0
+debug = 1
 conffile='/usr/local/etc/xquota.conf'
 statefile='/var/tmp/xquota.state'
 logfile='/var/log/xquota.log'
@@ -77,6 +77,16 @@ def tests_run():
 
 
 
+################ os
+
+def userid(name):
+    return pwd.getpwnam(name).pw_uid
+
+def gethomedir(uid):
+    return pwd.getpwuid(uid).pw_dir
+
+
+
 ################ bash commands
 
 def notify(txt):
@@ -85,30 +95,31 @@ def notify(txt):
     except FileNotFoundError:
         log.warning('notify-send not found, can not send warnings.')
 
+
 def notifyuser(user, txt):
+    uid = userid(user)      #todo: use uid instead of user
+    env = {'DISPLAY':':0', 'HOME':gethomedir(uid)}
+    for k in 'PATH',:
+        env[k] = os.environ[k]
+    # seteuid is not enough for notify-send, need fork+setuid
     try:
-        uid0 = os.geteuid()
-        uid = userid(user)      #todo: use uid instead of user
-        log.info(f'switching to {uid=}')
-        os.seteuid(uid)
-        env = {'DISPLAY':':0'}
-        for k in 'PATH','HOME':
-            env[k] = os.environ[k]
-        subprocess.run(['notify-send', txt],env=env)
-        os.seteuid(uid0)
-    except PermissionError:
-        log.error('need root to notify other users.')
-    except FileNotFoundError:
-        #todo: test existence of notify-send
-        log.warning('notify-send not found, can not send warnings.')
+        if not os.fork():
+            log.debug(f'child uid={os.getpid()}')
+            try:
+                log.debug(f'switching to {uid=}')
+                os.setuid(uid)
+                subprocess.run(['notify-send', txt],env=env)
+            except PermissionError:
+                log.warning('need root to notify other users.')
+            except FileNotFoundError:
+                log.warning('notify-send not found, can not send warnings.')
+            os._exit(0)
+    except OSError:
+        log.error('fork() failed, unable to notify user')
 
 
 
 ################ process list
-
-def userid(name):
-    return pwd.getpwnam(name).pw_uid
-
 
 def kill(pid):
     log.info(f'Killing {pid}')
