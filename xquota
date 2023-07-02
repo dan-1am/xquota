@@ -17,12 +17,14 @@ import logging,logging.handlers
 
 appname = sys.argv[0].rpartition('/')[2]
 debug = 0
-conffile='xquota.conf'
-statefile='xquota.state'
+conffile='/usr/local/etc/xquota.conf'
+statefile='/var/tmp/xquota.state'
+logfile='/var/log/xquota.log'
 
-if not debug:
-    conffile = '/usr/local/etc/' + conffile
-    statefile = '/var/tmp/' + statefile
+if debug:
+    conffile = conffile.rpartition('/')[2]
+    statefile = statefile.rpartition('/')[2]
+    logfile = logfile.rpartition('/')[2]
 
 savedelay = 5 if debug else 300
 watchdelay = 1 if debug else 15
@@ -36,12 +38,19 @@ def startlog():
     global consolelog
     log = logging.getLogger()
     log.setLevel(logging.DEBUG)
-    consolelog = logging.StreamHandler()
     fmt = logging.Formatter('%(levelname)s: %(message)s')
+
+    consolelog = logging.StreamHandler()
     consolelog.setFormatter(fmt)
     log.addHandler(consolelog)
 
+    filelog = logging.handlers.RotatingFileHandler(logfile, maxBytes=pow(10,6), backupCount=1)
+    filelog.setFormatter(fmt)
+    log.addHandler(filelog)
+
+
 def daemonlog():
+    if debug: return
     syslog = logging.handlers.SysLogHandler(address = '/dev/log')
     fmt = logging.Formatter(appname + ': %(levelname)s: %(message)s')
     syslog.setFormatter(fmt)
