@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-version = '1.04'
+version = '1.05'
 created = '2023.06.17'
 
 import re
@@ -38,13 +38,14 @@ def startlog():
     global consolelog
     log = logging.getLogger()
     log.setLevel(logging.DEBUG)
-    fmt = logging.Formatter('%(levelname)s: %(message)s')
 
     consolelog = logging.StreamHandler()
+    fmt = logging.Formatter('%(levelname)s: %(message)s')
     consolelog.setFormatter(fmt)
     log.addHandler(consolelog)
 
     filelog = logging.handlers.RotatingFileHandler(logfile, maxBytes=pow(10,6), backupCount=1)
+    fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     filelog.setFormatter(fmt)
     log.addHandler(filelog)
 
@@ -86,7 +87,17 @@ def notify(txt):
 
 def notifyuser(user, txt):
     try:
-        subprocess.run(['su','-',user,'-c',f'DISPLAY=:0 notify-send "{txt}"'])
+        uid0 = os.geteuid()
+        uid = userid(user)      #todo: use uid instead of user
+        log.info(f'switching to {uid=}')
+        os.seteuid(uid)
+        env = {'DISPLAY':':0'}
+        for k in 'PATH','HOME':
+            env[k] = os.environ[k]
+        subprocess.run(['notify-send', txt],env=env)
+        os.seteuid(uid0)
+    except PermissionError:
+        log.error('need root to notify other users.')
     except FileNotFoundError:
         #todo: test existence of notify-send
         log.warning('notify-send not found, can not send warnings.')
@@ -381,7 +392,7 @@ def pscheck():
         if ps.name == 'X':
             uid = ps.uid()
             if uid in users:
-                return true
+                return True
 
 
 def control():
@@ -435,18 +446,14 @@ xquota -d''')
 
 def main():
     startlog()
-    asroot = os.getuid() == 0
+#    asroot = os.getuid() == 0
     if debug:
         tests_run()
     if len(sys.argv) > 1:
         if sys.argv[1] == '-d':
             daemonlog()
-            if asroot:
-                if not confreload(): return
-                daemon()
-            else:
-                log.error('need root to run daemon.')
-                return
+            if not confreload(): return
+            daemon()
         else:
             print('Wrong arguments.\n')
             showhelp()
@@ -460,6 +467,6 @@ def main():
 
 try:
     main()
-except Exception as e:
-    log.critical(e, exc_info=True)
+except Exception:
+    log.critical('Exception in main', exc_info=True)
     sys.exit(1)
