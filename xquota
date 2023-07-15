@@ -290,6 +290,8 @@ def parserules(txt):
                 return
             left += add
             totaladd -= add
+            if add > 0:
+                maxlen += add
         start = datetime.combine(day, parsetime(start))
         if maxlen:
             end = start + timedelta(minutes=maxlen)
