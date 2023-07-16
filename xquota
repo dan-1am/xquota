@@ -26,8 +26,8 @@ if debug:
     statefile = statefile.rpartition('/')[2]
     logfile = logfile.rpartition('/')[2]
 
-savedelay = 5 if debug else 300
-watchdelay = 1 if debug else 15
+savedelay = 30 if debug else 300
+watchdelay = 5 if debug else 15
 
 
 
@@ -425,10 +425,14 @@ def control():
             uid = ps.uid()
             if uid in users:
                 found.append(ps)
-                notifyuser(users[uid], 'Ограничение по времени, выход в консоль через 30 секунд.')
+                if not debug:
+                    notifyuser(users[uid], 'Ограничение по времени, выход в консоль через 30 секунд.')
     if found:
-        sleep(30)
-        killall(found)
+        if debug:
+            log.debug(f'simulate killing {found[0].pid} + {len(found)-1} other')
+        else:
+            sleep(30)
+            killall(found)
 
 
 def daemon():
@@ -442,7 +446,7 @@ def daemon():
         if confreload() or last.day != now.day:
             lastrule = None
             newrules()
-        if not lastrule or lastrule.ended():
+        if not lastrule or lastrule.ended() or lastrule.end > now:
             lastrule = activerule(now, rules)
         if lastrule:
             if pscheck():
@@ -474,7 +478,8 @@ def main():
         tests_run()
     if len(sys.argv) > 1:
         if sys.argv[1] == '-d':
-            daemonlog()
+            if not debug:
+                daemonlog()
             if not confreload(): return
             daemon()
         else:
