@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-version = '1.09'
+version = '1.10'
 created = '2023.06.17'
 
 import re
@@ -44,10 +44,14 @@ def startlog():
     consolelog.setFormatter(fmt)
     log.addHandler(consolelog)
 
-    filelog = logging.handlers.RotatingFileHandler(logfile, maxBytes=pow(10,6), backupCount=1)
-    fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    filelog.setFormatter(fmt)
-    log.addHandler(filelog)
+    try:
+        filelog = logging.handlers.RotatingFileHandler(logfile, maxBytes=pow(10,6), backupCount=1)
+    except Exception:
+        log.warning(f'Can not open log file [{logfile}]')
+    else:
+        fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        filelog.setFormatter(fmt)
+        log.addHandler(filelog)
 
 
 def daemonlog():
