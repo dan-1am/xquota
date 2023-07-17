@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-version = '1.07'
+version = '1.09'
 created = '2023.06.17'
 
 import re
@@ -305,7 +305,11 @@ def parserules(txt):
     rules = []
     totaladd = 0
     addparts = 1
-    exec(txt)
+    try:
+        exec(txt)
+    except Exception:
+        log.error('Error in configuration file')
+        log.info('', exc_info=True)
     if totaladd:
         log.info(f'Unused add time={totaladd}')
     return rules
