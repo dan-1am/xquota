@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-version = '1.10'
+version = '1.11'
 created = '2023.06.17'
 
 import re
@@ -137,7 +137,7 @@ def psfullname(procdir):
             args = f.read()
             return args.partition('\x00')[0]
     except OSError:
-        pass
+        return ''
 
 
 class process:
