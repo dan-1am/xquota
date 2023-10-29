@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-version = '1.11'
+version = '1.12'
 created = '2023.06.17'
 
 import re
@@ -330,6 +330,7 @@ def activerule(time, rules):
         if time >= r.start and time < r.end:
             if r.spent < r.add:
                 return r
+    return None
 
 
 def displayrules():
@@ -439,7 +440,7 @@ def control():
         if debug:
             log.debug(f'simulate killing {found[0].pid} + {len(found)-1} other')
         else:
-            sleep(30)
+            sleep(60)
             killall(found)
 
 
