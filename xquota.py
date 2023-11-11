@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-version = '1.12'
+__version__ = '1.12.01'
 created = '2023.06.17'
 
 import re
@@ -16,10 +16,12 @@ import logging,logging.handlers
 
 
 appname = sys.argv[0].rpartition('/')[2]
-debug = 1
 conffile='/usr/local/etc/xquota.conf'
 statefile='/var/tmp/xquota.state'
 logfile='/var/log/xquota.log'
+
+markerfile = Path("xquota.conf")
+debug = markerfile.exists()
 
 if debug:
     conffile = conffile.rpartition('/')[2]
@@ -28,6 +30,30 @@ if debug:
 
 savedelay = 30 if debug else 300
 watchdelay = 5 if debug else 15
+
+
+
+################ tools
+
+def loadfile(path):
+    try:
+        with open(path) as f:
+            data = f.read()
+    except FileNotFoundError:
+        return
+    log.info(f'Loaded file {path}')
+    return data
+
+
+def savefile(path, data):
+    log.info(f'Saving {path}')
+    try:
+        with open(path, 'w') as f:
+            f.write(data)
+    except OSError:
+        log.error(f'unable to save file [{statefile}]')
+    else:
+        return True
 
 
 
@@ -65,22 +91,6 @@ def daemonlog():
 
 
 
-################ tests
-
-tests_list = []
-
-def tests(func):
-    tests_list.append(func)
-    return func
-
-
-def tests_run():
-    for t in tests_list:
-        t()
-    print("Tests finished.")
-
-
-
 ################ os
 
 def userid(name):
@@ -93,13 +103,6 @@ def gethomedir(uid):
 
 ################ bash commands
 
-def notify(txt):
-    try:
-        subprocess.run(['notify-send', txt])
-    except FileNotFoundError:
-        log.warning('notify-send not found, can not send warnings.')
-
-
 def notifyuser(user, txt):
     uid = userid(user)      #todo: use uid instead of user
     env = {'DISPLAY':':0', 'HOME':gethomedir(uid)}
@@ -107,7 +110,7 @@ def notifyuser(user, txt):
         env[k] = os.environ[k]
     # seteuid is not enough for notify-send, need fork+setuid
     try:
-        if not os.fork():
+        if not os.fork():    # Child process
             log.debug(f'child uid={os.getpid()}')
             try:
                 log.debug(f'switching to {uid=}')
@@ -176,18 +179,6 @@ def killall(pslist):
             pass
 
 
-@tests
-def test_ps():
-    count = 0
-    for ps in psiterate():
-        count += 1
-        if ps.name == 'login':
-            break
-    else:
-        raise Exception('no login process found')
-    assert count > 0, 'empty ps list'
-
-
 
 ################ date
 
@@ -231,11 +222,13 @@ def parsetime(txt):
 
 ################ rules
 
-class ruleinfo:
-    def __init__(self, start, add, end, ruleid):
+class RuleInfo:
+    def __init__(self, start, add, end, ruleid=None):
         self.start = start
         self.add = add
         self.end = end
+        if ruleid is None:
+            ruleid = f'{start.isoformat()}+{add}'
         self.id = ruleid
         self.spent = 0
 
@@ -244,13 +237,95 @@ class ruleinfo:
         self.spent += sec/60
         statechanged = True
 
-    def ended(self):
-        return self.spent >= self.add
+    def ended(self, now):
+        return self.spent >= self.add or self.end > now
 
     def __repr__(self):
         start = self.start.strftime('%Y.%m.%d %H:%M')
         end = self.end.strftime('%Y.%m.%d %H:%M')
         return f'{start} - {end} +{self.spent}/{self.add}'
+
+
+
+################ rules list
+
+class RulesList:
+
+    def __init__(self):
+        self.list = []
+        self.hash = {}
+        self.changed = False
+        self.lastsave = None
+        self.lost = {}
+
+    def add(self, rule):
+        self.list.append(rule)
+        self.hash[rule.id] = rule
+        return self
+
+    def sort(self):
+        self.list.sort(key=lambda r: r.end)
+        return self
+
+    def update(self, newrules):
+        for new in newrules:
+            if old := self.hash.pop(new.id, None) :
+                new.spent = old.spent
+            elif time := self.lost.pop(new.id, None) :
+                new.spent = time
+        for old in self.hash.values():
+            self.lost[old.id] = old.spent
+        self.hash = {r.id: r for r in newrules}
+        self.list = newrules
+        self.sort()
+        return self
+
+    def active(self, time):
+        for r in self.list:
+            if time >= r.start and time < r.end:
+                if r.spent < r.add:
+                    return r
+        return None
+
+    def saved(self, now=None):
+        if not now:
+            now = datetime.now()
+        self.changed = False
+        self.lastsave = now
+
+    def time_to_text(self):
+        parts = []
+        for r in self.list:
+            parts.append(f'{r.id}={r.spent:.2f}\n')
+        for k,v in self.lost:
+            parts.append(f'{k}={v:.2f}\n')
+        return ''.join(parts)
+
+    def time_from_text(self, text):
+        for line in text.splitlines():
+            ruleid,equal,spent = line.partition('=')
+            if equal:
+                rule = self.hash.get(ruleid, None)
+                if rule:
+                    rule.spent = float(spent)
+                else:
+                    self.lost[ruleid] = spent
+
+    def savetime(self, force=False):
+        if not (force or self.changed):
+            return
+        now = datetime.now()
+        if not force and self.lastsave and (now-self.lastsave).total_seconds() < savedelay:
+            return
+        if savefile(statefile, self.time_to_text()):
+            self.saved(now)
+
+    def loadtime(self):
+        self.saved()
+        text = loadfile(statefile)
+        if text is None:
+            return
+        self.time_from_text(text)
 
 
 
@@ -301,8 +376,7 @@ def parserules(txt):
             end = start + timedelta(minutes=maxlen)
         else:
             end = start + timedelta(minutes=left)
-        ruleid = f'{start.isoformat()}+{length}'
-        rules.append( ruleinfo(start, left, end, ruleid) )
+        rules.append( RuleInfo(start, left, end) )
 
     now = datetime.now()
     datenow = now.date()
@@ -314,28 +388,22 @@ def parserules(txt):
     except Exception:
         log.error('Error in configuration file')
         log.info('', exc_info=True)
+        return
     if totaladd:
         log.info(f'Unused add time={totaladd}')
     return rules
 
 
-def newrules():
-    global rules
-    rules = parserules(rulestext)
-    rules.sort(key=lambda r: r.end)
+def newrules(rules):
+    new = parserules(rulestext)
+    if new:
+        rules.update(new)
+    return rules
 
 
-def activerule(time, rules):
-    for r in rules:
-        if time >= r.start and time < r.end:
-            if r.spent < r.add:
-                return r
-    return None
-
-
-def displayrules():
-    active = activerule(datetime.now(), rules)
-    for r in rules:
+def displayrules(rules):
+    active = rules.active(datetime.now())
+    for r in rules.list:
         if r == active:
             print('> ', end='')
         print(r)
@@ -344,7 +412,6 @@ def displayrules():
 
 ################ conf file
 
-confloadedat = None
 rulestext = ''
 
 
@@ -360,59 +427,7 @@ def confreload():
         if txt != rulestext:
             log.info(f'Configuration loaded from [{name}]')
             rulestext = txt
-            confloadedat = datetime.now()
             return True
-
-
-
-################ save state
-
-statechanged = False
-savestatelast = None
-
-def statesaved(now=None):
-    global statechanged,savestatelast
-    if not now:
-        now = datetime.now()
-    statechanged = False
-    savestatelast = now
-
-
-def savestate(force=False):
-    if not (force or statechanged):
-        return
-    now = datetime.now()
-    if force or savestatelast and (now-savestatelast).total_seconds() > savedelay:
-        state = ''
-        for r in rules:
-            if r.spent > 0:
-                state += f'{r.id}={r.spent:.2f}\n'
-        log.info('Saving state.')
-        try:
-            with open(statefile, 'w') as f:
-                f.write(state)
-        except OSError:
-            log.error(f'unable to save state to [{statefile}]')
-        else:
-            statesaved(now)
-
-
-def loadstate():
-    statesaved()
-    try:
-        with open(statefile) as f:
-            txt = f.read()
-    except FileNotFoundError:
-        return
-    log.info('State loaded.')
-    state = {}
-    for line in txt.splitlines():
-        ruleid,_,spent = line.partition('=')
-        state[ruleid] = float(spent)
-    for r in rules:
-        spent = state.get(r.id)
-        if spent:
-            r.spent = spent
 
 
 
@@ -448,22 +463,22 @@ def daemon():
     log.info('Daemon started.')
     now = datetime.now()
     lastrule = None
-    newrules()
-    loadstate()
+    rules = newrules( RulesList() )
+    rules.loadtime()
     while True:
         last,now = now,datetime.now()
         if confreload() or last.day != now.day:
             lastrule = None
-            newrules()
-        if not lastrule or lastrule.ended() or lastrule.end > now:
-            lastrule = activerule(now, rules)
+            newrules(rules)
+        if not lastrule or lastrule.ended(now):
+            lastrule = rules.active(now)
         if lastrule:
             if pscheck():
                 dt = (now-last).total_seconds()
                 lastrule.spend(dt)
         else:
             control()
-        savestate()
+        rules.savetime()
         sleep(watchdelay)
 
 
@@ -483,8 +498,6 @@ xquota -d''')
 def main():
     startlog()
 #    asroot = os.getuid() == 0
-    if debug:
-        tests_run()
     if len(sys.argv) > 1:
         if sys.argv[1] == '-d':
             if not debug:
@@ -497,13 +510,15 @@ def main():
             return
     else:
         if not confreload(): return
-        newrules()
-        loadstate()
-        displayrules()
+        rules = newrules( RulesList() )
+        rules.loadtime()
+        displayrules(rules)
 
 
-try:
-    main()
-except Exception:
-    log.critical('Exception in main', exc_info=True)
-    sys.exit(1)
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        log.critical('Exception in main', exc_info=True)
+        sys.exit(1)
