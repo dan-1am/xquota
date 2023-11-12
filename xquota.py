@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-__version__ = '1.12.01'
+__version__ = '1.12.02b'
 created = '2023.06.17'
 
 import re
@@ -40,6 +40,7 @@ def loadfile(path):
         with open(path) as f:
             data = f.read()
     except FileNotFoundError:
+        log.error(f'unable to load file {path}')
         return
     log.info(f'Loaded file {path}')
     return data
@@ -259,8 +260,10 @@ class RulesList:
         self.lost = {}
 
     def add(self, rule):
-        self.list.append(rule)
-        self.hash[rule.id] = rule
+        if self.hash.get(rule.id, None) is None:
+            self.list.append(rule)
+            self.hash[rule.id] = rule
+            self.changed = True
         return self
 
     def sort(self):
@@ -278,6 +281,7 @@ class RulesList:
         self.hash = {r.id: r for r in newrules}
         self.list = newrules
         self.sort()
+        self.changed = True
         return self
 
     def active(self, time):
